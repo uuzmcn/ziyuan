@@ -4,6 +4,116 @@
  */
 class WP_Disk_Link_Manager_Disk_Manager {
     
+    private $logger;
+    
+    public function __construct() {
+        $this->logger = new WP_Disk_Link_Manager_Logger();
+    }
+    
+    /**
+     * 统一的HTTP请求方法
+     */
+    private function make_request($method, $url, $data = null, $headers = []) {
+        $args = [
+            'method' => $method,
+            'headers' => $headers,
+            'timeout' => 30,
+            'redirection' => 3,
+            'sslverify' => false
+        ];
+        
+        if ($data && $method === 'POST') {
+            if (isset($headers['Content-Type']) && strpos($headers['Content-Type'], 'application/json') !== false) {
+                $args['body'] = json_encode($data);
+            } else {
+                $args['body'] = is_array($data) ? http_build_query($data) : $data;
+            }
+        }
+        
+        // 记录请求日志
+        $this->logger->log(
+            'api_request_start',
+            null,
+            get_current_user_id(),
+            "API请求开始: {$method} {$url}",
+            ['data' => $data]
+        );
+        
+        $response = wp_remote_request($url, $args);
+        
+        // 记录响应日志
+        $response_code = wp_remote_retrieve_response_code($response);
+        $response_body = wp_remote_retrieve_body($response);
+        
+        $this->logger->log(
+            'api_response',
+            null,
+            get_current_user_id(),
+            "API响应: {$response_code}",
+            [
+                'url' => $url,
+                'response_code' => $response_code,
+                'response_body' => substr($response_body, 0, 1000)
+            ]
+        );
+        
+        return $response;
+    }
+    
+    /**
+     * 智能重试机制
+     */
+    private function retry_with_backoff($callback, $max_retries = 3) {
+        $attempt = 0;
+        $base_delay = 1;
+        
+        while ($attempt < $max_retries) {
+            try {
+                return $callback();
+            } catch (Exception $e) {
+                $attempt++;
+                
+                if ($attempt >= $max_retries) {
+                    throw new Exception("重试{$max_retries}次后仍失败: " . $e->getMessage());
+                }
+                
+                $delay = $base_delay * pow(2, $attempt - 1);
+                
+                $this->logger->log(
+                    'api_retry',
+                    null,
+                    get_current_user_id(),
+                    "API请求重试 (第{$attempt}次，{$delay}秒后): " . $e->getMessage()
+                );
+                
+                sleep($delay);
+            }
+        }
+    }
+    
+    /**
+     * 处理API响应
+     */
+    private function handle_api_response($response, $context = '') {
+        if (is_wp_error($response)) {
+            throw new Exception("网络请求失败: " . $response->get_error_message());
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        if ($status_code !== 200) {
+            throw new Exception("HTTP请求失败，状态码: " . $status_code);
+        }
+        
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+        
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception("响应数据解析失败: " . json_last_error_msg());
+        }
+        
+        return $data;
+    }
+    
     /**
      * 转存链接
      */
@@ -19,7 +129,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
     }
     
     /**
-     * 转存百度网盘链接
+     * 转存百度网盘链接 (优化版)
      */
     private function transfer_baidu_link($original_url) {
         $cookie = get_option('wp_disk_link_manager_baidu_cookie');
@@ -28,28 +138,62 @@ class WP_Disk_Link_Manager_Disk_Manager {
             throw new Exception(__('百度网盘Cookie未配置', 'wp-disk-link-manager'));
         }
         
+        // 频率控制检查
+        $this->rate_limit_check('baidu_api');
+        
+        // 记录开始日志
+        $this->logger->log(
+            'baidu_transfer_start',
+            null,
+            get_current_user_id(),
+            __('开始百度网盘转存', 'wp-disk-link-manager'),
+            array('original_url' => $original_url)
+        );
+        
         try {
-            // 解析原始链接，获取分享信息
-            $share_info = $this->parse_baidu_share_url($original_url);
-            
-            // 获取文件列表
-            $file_list = $this->get_baidu_file_list($share_info, $cookie);
-            
-            // 转存文件到自己的网盘
-            $save_result = $this->save_baidu_files($file_list, $cookie);
-            
-            // 创建新的分享链接
-            $new_share_url = $this->create_baidu_share($save_result['file_paths'], $cookie);
-            
-            return $new_share_url;
+            // 使用重试机制执行转存
+            return $this->retry_with_backoff(function() use ($original_url) {
+                return $this->process_baidu_transfer_optimized($original_url);
+            });
             
         } catch (Exception $e) {
+            // 记录详细错误
+            $this->logger->log(
+                'baidu_transfer_error',
+                null,
+                get_current_user_id(),
+                __('百度网盘获取失败: ', 'wp-disk-link-manager') . $e->getMessage(),
+                array(
+                    'original_url' => $original_url,
+                    'error_message' => $e->getMessage()
+                )
+            );
+            
             throw new Exception(__('百度网盘获取失败: ', 'wp-disk-link-manager') . $e->getMessage());
         }
     }
     
     /**
-     * 转存夸克网盘链接
+     * 处理百度网盘转存的核心逻辑 (优化版)
+     */
+    private function process_baidu_transfer_optimized($original_url) {
+        // 步骤1: 解析分享链接
+        $share_info = $this->parse_baidu_share_url_optimized($original_url);
+        
+        // 步骤2: 获取文件列表
+        $file_list = $this->get_baidu_file_list_optimized($share_info);
+        
+        // 步骤3: 转存文件
+        $save_result = $this->save_baidu_files_optimized($file_list, $share_info);
+        
+        // 步骤4: 创建新的分享链接
+        $new_share_url = $this->create_baidu_share_optimized($save_result['file_paths']);
+        
+        return $new_share_url;
+    }
+    
+    /**
+     * 转存夸克网盘链接 (优化版)
      */
     private function transfer_quark_link($original_url) {
         $cookie = get_option('wp_disk_link_manager_quark_cookie');
@@ -58,8 +202,11 @@ class WP_Disk_Link_Manager_Disk_Manager {
             throw new Exception(__('夸克网盘Cookie未配置', 'wp-disk-link-manager'));
         }
         
+        // 频率控制检查
+        $this->rate_limit_check('quark_api');
+        
         // 记录详细的调试信息
-        WP_Disk_Link_Manager_Logger::log(
+        $this->logger->log(
             'quark_transfer_start',
             null,
             get_current_user_id(),
@@ -68,28 +215,52 @@ class WP_Disk_Link_Manager_Disk_Manager {
         );
         
         try {
-            // 解析原始链接，获取分享信息
-            $share_info = $this->parse_quark_share_url($original_url);
+            // 使用重试机制执行转存
+            return $this->retry_with_backoff(function() use ($original_url) {
+                return $this->process_quark_transfer_optimized($original_url);
+            });
             
-            // 检查Cookie有效性
-            $this->validate_quark_cookie($cookie);
+        } catch (Exception $e) {
+            // 记录详细错误
+            $this->logger->log(
+                'quark_transfer_error',
+                null,
+                get_current_user_id(),
+                __('夸克网盘获取失败: ', 'wp-disk-link-manager') . $e->getMessage(),
+                array(
+                    'original_url' => $original_url,
+                    'error_message' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString()
+                )
+            );
             
-            // 获取文件列表
-            $file_list = $this->get_quark_file_list($share_info, $cookie);
+            throw new Exception(__('夸克网盘获取失败: ', 'wp-disk-link-manager') . $e->getMessage());
+        }
+    }
+    
+    /**
+     * 处理夸克网盘转存的核心逻辑 (优化版)
+     */
+    private function process_quark_transfer_optimized($original_url) {
+        // 步骤1: 获取分享token
+        $token_data = $this->get_quark_share_token($original_url);
+        
+        // 步骤2: 获取文件详情
+        $file_details = $this->get_quark_file_details($token_data);
+        
+        if (empty($file_details['list'])) {
+            throw new Exception(__('未找到可转存的文件', 'wp-disk-link-manager'));
+        }
+        
+        // 步骤3: 保存文件
+        $save_result = $this->save_quark_files_optimized($file_details['list'], $token_data);
+        
+        if (empty($save_result['file_ids'])) {
+            throw new Exception(__('文件获取失败，没有成功保存的文件', 'wp-disk-link-manager'));
+        }
             
-            if (empty($file_list)) {
-                throw new Exception(__('未找到可转存的文件', 'wp-disk-link-manager'));
-            }
-            
-            // 转存文件到自己的网盘
-            $save_result = $this->save_quark_files($file_list, $share_info, $cookie);
-            
-            if (empty($save_result['file_ids'])) {
-                throw new Exception(__('文件获取失败，没有成功保存的文件', 'wp-disk-link-manager'));
-            }
-            
-            // 创建新的分享链接
-            $new_share_url = $this->create_quark_share($save_result['file_ids'], $cookie);
+            // 步骤4: 创建新的分享链接
+            $new_share_url = $this->create_quark_share_optimized($save_result['file_ids']);
             
             // 记录成功日志
             WP_Disk_Link_Manager_Logger::log(
@@ -807,5 +978,276 @@ class WP_Disk_Link_Manager_Disk_Manager {
         
         // 超时或出错，返回null
         return null;
+    }
+    
+    /**
+     * 获取夸克分享token (优化版)
+     */
+    private function get_quark_share_token($share_url) {
+        $parsed_url = parse_url($share_url);
+        preg_match('/\/s\/([a-zA-Z0-9]+)/', $parsed_url['path'], $matches);
+        $share_key = $matches[1] ?? '';
+        
+        $api_url = 'https://drive-pc.quark.cn/1/clouddrive/share/sharepage/token';
+        
+        $data = [
+            'url' => $share_url,
+            'passcode' => '',
+            'force' => 0
+        ];
+        
+        $response = $this->make_request('POST', $api_url, $data, $this->get_optimized_quark_headers());
+        return $this->handle_api_response($response);
+    }
+    
+    /**
+     * 获取夸克文件详情 (优化版)
+     */
+    private function get_quark_file_details($token_data) {
+        $api_url = 'https://drive-pc.quark.cn/1/clouddrive/share/sharepage/detail';
+        
+        $data = [
+            'pwd_id' => $token_data['pwd_id'],
+            'stoken' => $token_data['stoken'],
+            'pdir_fid' => '0',
+            'force' => 0,
+            '_page' => 1,
+            '_size' => 50,
+            '_sort' => 'file_type:asc,updated_at:desc'
+        ];
+        
+        $response = $this->make_request('POST', $api_url, $data, $this->get_optimized_quark_headers());
+        return $this->handle_api_response($response);
+    }
+    
+    /**
+     * 保存夸克文件 (优化版)
+     */
+    private function save_quark_files_optimized($file_list, $token_data) {
+        $api_url = 'https://drive-pc.quark.cn/1/clouddrive/share/sharepage/save';
+        
+        $fid_list = [];
+        $fid_token_list = [];
+        
+        foreach ($file_list as $file) {
+            $fid_list[] = $file['fid'];
+            $fid_token_list[] = $file['share_fid_token'];
+        }
+        
+        $data = [
+            'fid_list' => $fid_list,
+            'fid_token_list' => $fid_token_list,
+            'to_pdir_fid' => '0',
+            'pwd_id' => $token_data['pwd_id'],
+            'stoken' => $token_data['stoken'],
+            'pdir_fid' => '0',
+            'scene' => 'link'
+        ];
+        
+        $response = $this->make_request('POST', $api_url, $data, $this->get_optimized_quark_headers());
+        return $this->handle_api_response($response);
+    }
+    
+    /**
+     * 创建夸克分享链接 (优化版)
+     */
+    private function create_quark_share_optimized($file_ids) {
+        $api_url = 'https://drive-pc.quark.cn/1/clouddrive/share';
+        
+        $data = [
+            'fid_list' => $file_ids,
+            'title' => '分享文件',
+            'url_type' => 1,
+            'expired_type' => 1, // 1天有效期
+            'passcode' => ''
+        ];
+        
+        $response = $this->make_request('POST', $api_url, $data, $this->get_optimized_quark_headers());
+        $result = $this->handle_api_response($response);
+        
+        return $result['share_url'] ?? '';
+    }
+    
+    /**
+     * 获取优化的夸克网盘请求头
+     */
+    private function get_optimized_quark_headers() {
+        return [
+            'Cookie' => get_option('wp_disk_link_manager_quark_cookie', ''),
+            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer' => 'https://pan.quark.cn/',
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json, text/plain, */*',
+            'Accept-Language' => 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding' => 'gzip, deflate, br',
+            'Connection' => 'keep-alive',
+            'Sec-Fetch-Dest' => 'empty',
+            'Sec-Fetch-Mode' => 'cors',
+            'Sec-Fetch-Site' => 'same-origin'
+        ];
+    }
+    
+    /**
+     * 获取优化的百度网盘请求头
+     */
+    private function get_optimized_baidu_headers() {
+        return [
+            'Cookie' => get_option('wp_disk_link_manager_baidu_cookie', ''),
+            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer' => 'https://pan.baidu.com/',
+            'Content-Type' => 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Accept' => 'application/json, text/javascript, */*; q=0.01',
+            'X-Requested-With' => 'XMLHttpRequest'
+        ];
+    }
+    
+    /**
+     * 频率控制检查
+     */
+    private function rate_limit_check($operation_type) {
+        $limits = [
+            'quark_api' => ['requests' => 10, 'window' => 60], // 10次/分钟
+            'baidu_api' => ['requests' => 20, 'window' => 60], // 20次/分钟
+        ];
+        
+        if (!isset($limits[$operation_type])) {
+            return;
+        }
+        
+        $limit = $limits[$operation_type];
+        $key = "rate_limit_{$operation_type}_" . get_current_user_id();
+        
+        $current_time = time();
+        $requests = get_transient($key) ?: [];
+        
+        // 清除过期的请求记录
+        $requests = array_filter($requests, function($timestamp) use ($current_time, $limit) {
+            return ($current_time - $timestamp) < $limit['window'];
+        });
+        
+        if (count($requests) >= $limit['requests']) {
+            $wait_time = $limit['window'] - ($current_time - min($requests));
+            throw new Exception("操作频率过高，请等待 {$wait_time} 秒后重试");
+        }
+        
+        $requests[] = $current_time;
+        set_transient($key, $requests, $limit['window']);
+    }
+
+    /**
+     * 解析百度分享链接 (优化版)
+     */
+    private function parse_baidu_share_url_optimized($share_url) {
+        preg_match('/\/s\/([a-zA-Z0-9_-]+)/', $share_url, $matches);
+        $shareid = $matches[1] ?? '';
+        
+        // 获取分享页面信息
+        $response = $this->make_request('GET', $share_url, null, $this->get_optimized_baidu_headers());
+        $body = wp_remote_retrieve_body($response);
+        
+        // 提取必要参数
+        preg_match('/yunData\.SHARE_ID = "(\d+)"/', $body, $share_id_matches);
+        preg_match('/yunData\.SHARE_UK = "(\d+)"/', $body, $share_uk_matches);
+        
+        return [
+            'shareid' => $share_id_matches[1] ?? '',
+            'uk' => $share_uk_matches[1] ?? '',
+            'surl' => $shareid
+        ];
+    }
+    
+    /**
+     * 获取百度文件列表 (优化版)
+     */
+    private function get_baidu_file_list_optimized($share_info, $pwd = '') {
+        $api_url = 'https://pan.baidu.com/share/list';
+        
+        $data = [
+            'shareid' => $share_info['shareid'],
+            'uk' => $share_info['uk'],
+            'dir' => '/',
+            'pwd' => $pwd,
+            'page' => 1,
+            'num' => 100,
+            'order' => 'time',
+            'desc' => 1
+        ];
+        
+        $response = $this->make_request('POST', $api_url, $data, $this->get_optimized_baidu_headers());
+        return $this->handle_api_response($response);
+    }
+    
+    /**
+     * 保存百度文件 (优化版)
+     */
+    private function save_baidu_files_optimized($file_list, $share_info) {
+        $api_url = 'https://pan.baidu.com/share/transfer';
+        
+        $data = [
+            'shareid' => $share_info['shareid'],
+            'uk' => $share_info['uk'],
+            'filelist' => json_encode($file_list),
+            'path' => '/apps/转存文件',
+            'ondup' => 'newcopy'
+        ];
+        
+        $response = $this->make_request('POST', $api_url, $data, $this->get_optimized_baidu_headers());
+        return $this->handle_api_response($response);
+    }
+    
+    /**
+     * 创建百度分享链接 (优化版)
+     */
+    private function create_baidu_share_optimized($file_paths) {
+        $api_url = 'https://pan.baidu.com/share/set';
+        
+        $data = [
+            'fid_list' => json_encode($file_paths),
+            'schannel' => 4,
+            'channel_list' => '[]',
+            'period' => 1 // 1天有效期
+        ];
+        
+        $response = $this->make_request('POST', $api_url, $data, $this->get_optimized_baidu_headers());
+        $result = $this->handle_api_response($response);
+        
+        return $result['share_url'] ?? '';
+    }
+    
+    /**
+     * Cookie验证方法
+     */
+    public function validate_quark_cookie($cookie) {
+        $test_url = 'https://drive-pc.quark.cn/1/clouddrive/capacity';
+        
+        $headers = [
+            'Cookie' => $cookie,
+            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        ];
+        
+        try {
+            $response = $this->make_request('GET', $test_url, null, $headers);
+            $data = $this->handle_api_response($response);
+            return isset($data['data']) && !empty($data['data']);
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+    
+    public function validate_baidu_cookie($cookie) {
+        $test_url = 'https://pan.baidu.com/api/quota';
+        
+        $headers = [
+            'Cookie' => $cookie,
+            'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        ];
+        
+        try {
+            $response = $this->make_request('GET', $test_url, null, $headers);
+            $data = $this->handle_api_response($response);
+            return isset($data['errno']) && $data['errno'] === 0;
+        } catch (Exception $e) {
+            return false;
+        }
     }
 }

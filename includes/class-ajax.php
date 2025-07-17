@@ -4,7 +4,13 @@
  */
 class WP_Disk_Link_Manager_Ajax {
     
+    private $logger;
+    private $disk_manager;
+    
     public function __construct() {
+        $this->logger = new WP_Disk_Link_Manager_Logger();
+        $this->disk_manager = new WP_Disk_Link_Manager_Disk_Manager();
+        
         // 用户端AJAX处理
         add_action('wp_ajax_transfer_disk_link', array($this, 'handle_transfer_request'));
         add_action('wp_ajax_nopriv_transfer_disk_link', array($this, 'handle_transfer_request'));
@@ -15,7 +21,52 @@ class WP_Disk_Link_Manager_Ajax {
     }
     
     /**
-     * 处理转存请求
+     * 性能监控装饰器
+     */
+    private function monitor_performance($operation, $callback) {
+        $start_time = microtime(true);
+        $start_memory = memory_get_usage();
+        
+        try {
+            $result = $callback();
+            
+            $end_time = microtime(true);
+            $end_memory = memory_get_usage();
+            
+            $this->logger->log(
+                'performance_monitor',
+                null,
+                get_current_user_id(),
+                "操作性能: {$operation}",
+                [
+                    'execution_time' => round($end_time - $start_time, 3),
+                    'memory_usage' => $end_memory - $start_memory,
+                    'peak_memory' => memory_get_peak_usage()
+                ]
+            );
+            
+            return $result;
+            
+        } catch (Exception $e) {
+            $end_time = microtime(true);
+            
+            $this->logger->log(
+                'performance_error',
+                null,
+                get_current_user_id(),
+                "操作失败: {$operation}",
+                [
+                    'execution_time' => round($end_time - $start_time, 3),
+                    'error' => $e->getMessage()
+                ]
+            );
+            
+            throw $e;
+        }
+    }
+    
+    /**
+     * 处理转存请求 (优化版)
      */
     public function handle_transfer_request() {
         check_ajax_referer('wp_disk_link_manager_nonce', 'nonce');

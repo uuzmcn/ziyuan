@@ -4,7 +4,13 @@
  */
 class WP_Disk_Link_Manager_Admin {
     
+    private $disk_manager;
+    private $logger;
+    
     public function __construct() {
+        $this->disk_manager = new WP_Disk_Link_Manager_Disk_Manager();
+        $this->logger = new WP_Disk_Link_Manager_Logger();
+        
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'register_settings'));
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
@@ -12,6 +18,7 @@ class WP_Disk_Link_Manager_Admin {
         add_action('wp_ajax_import_plugin_file', array($this, 'handle_plugin_file_import'));
         add_action('wp_ajax_preview_plugin_file', array($this, 'handle_plugin_file_preview'));
         add_action('wp_ajax_test_disk_cookie', array($this, 'handle_test_disk_cookie'));
+        add_action('wp_ajax_validate_all_cookies', array($this, 'handle_validate_all_cookies'));
     }
     
     /**
@@ -898,7 +905,7 @@ class WP_Disk_Link_Manager_Admin {
     }
     
     /**
-     * 处理Cookie测试
+     * 处理Cookie测试 (优化版)
      */
     public function handle_test_disk_cookie() {
         check_ajax_referer('wp_disk_link_manager_admin_nonce', 'nonce');
@@ -914,23 +921,94 @@ class WP_Disk_Link_Manager_Admin {
             wp_send_json_error(__('Cookie不能为空', 'wp-disk-link-manager'));
         }
         
+        // 记录测试开始
+        $this->logger->log(
+            'cookie_test_start',
+            null,
+            get_current_user_id(),
+            "开始测试{$disk_type}网盘Cookie",
+            ['disk_type' => $disk_type]
+        );
+        
         try {
+            $result = null;
+            
             if ($disk_type === 'quark') {
-                $result = $this->test_quark_cookie($cookie);
+                $result = $this->disk_manager->validate_quark_cookie($cookie);
+                $message = $result ? '夸克网盘Cookie有效' : '夸克网盘Cookie无效';
             } elseif ($disk_type === 'baidu') {
-                $result = $this->test_baidu_cookie($cookie);
+                $result = $this->disk_manager->validate_baidu_cookie($cookie);
+                $message = $result ? '百度网盘Cookie有效' : '百度网盘Cookie无效';
             } else {
                 wp_send_json_error(__('不支持的网盘类型', 'wp-disk-link-manager'));
             }
             
-            wp_send_json_success(array(
-                'message' => $result['message'],
-                'user_info' => $result['user_info'] ?? null
-            ));
+            // 记录测试结果
+            $this->logger->log(
+                'cookie_test_result',
+                null,
+                get_current_user_id(),
+                "Cookie测试结果: {$message}",
+                ['disk_type' => $disk_type, 'valid' => $result]
+            );
+            
+            if ($result) {
+                wp_send_json_success(array('message' => $message));
+            } else {
+                wp_send_json_error($message);
+            }
             
         } catch (Exception $e) {
+            // 记录测试错误
+            $this->logger->log(
+                'cookie_test_error',
+                null,
+                get_current_user_id(),
+                "Cookie测试失败: " . $e->getMessage(),
+                ['disk_type' => $disk_type, 'error' => $e->getMessage()]
+            );
+            
             wp_send_json_error($e->getMessage());
         }
+    }
+    
+    /**
+     * 验证所有Cookie有效性
+     */
+    public function handle_validate_all_cookies() {
+        check_ajax_referer('wp_disk_link_manager_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('权限不足', 'wp-disk-link-manager'));
+        }
+        
+        $results = [];
+        
+        // 验证夸克Cookie
+        $quark_cookie = get_option('wp_disk_link_manager_quark_cookie', '');
+        if (!empty($quark_cookie)) {
+            try {
+                $results['quark'] = $this->disk_manager->validate_quark_cookie($quark_cookie);
+            } catch (Exception $e) {
+                $results['quark'] = false;
+            }
+        } else {
+            $results['quark'] = null; // 未配置
+        }
+        
+        // 验证百度Cookie
+        $baidu_cookie = get_option('wp_disk_link_manager_baidu_cookie', '');
+        if (!empty($baidu_cookie)) {
+            try {
+                $results['baidu'] = $this->disk_manager->validate_baidu_cookie($baidu_cookie);
+            } catch (Exception $e) {
+                $results['baidu'] = false;
+            }
+        } else {
+            $results['baidu'] = null; // 未配置
+        }
+        
+        wp_send_json_success($results);
     }
     
     /**
