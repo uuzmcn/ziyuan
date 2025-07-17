@@ -116,7 +116,7 @@ class WP_Disk_Link_Manager_Ajax {
                 'expire_time' => $transfer->expire_time
             ));
         } elseif ($transfer->status === 'failed') {
-            wp_send_json_error(__('转存失败', 'wp-disk-link-manager'));
+                            wp_send_json_error(__('获取失败', 'wp-disk-link-manager'));
         } else {
             wp_send_json_success(array(
                 'status' => 'pending',
@@ -236,7 +236,7 @@ class WP_Disk_Link_Manager_Ajax {
                 'transfer_failed',
                 $transfer->post_id,
                 $transfer->user_id,
-                __('转存失败: ', 'wp-disk-link-manager') . $e->getMessage(),
+                __('获取失败: ', 'wp-disk-link-manager') . $e->getMessage(),
                 array(
                     'original_url' => $transfer->original_url,
                     'disk_type' => $transfer->disk_type,

@@ -53,8 +53,8 @@ class WP_Disk_Link_Manager {
         wp_localize_script('wp-disk-link-manager-frontend', 'wpDiskLinkManager', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('wp_disk_link_manager_nonce'),
-            'loading_text' => __('正在转存...', 'wp-disk-link-manager'),
-            'error_text' => __('转存失败，请稍后重试', 'wp-disk-link-manager')
+            'loading_text' => __('正在获取...', 'wp-disk-link-manager'),
+            'error_text' => __('获取失败，请稍后重试', 'wp-disk-link-manager')
         ));
     }
     

@@ -44,7 +44,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             return $new_share_url;
             
         } catch (Exception $e) {
-            throw new Exception(__('百度网盘转存失败: ', 'wp-disk-link-manager') . $e->getMessage());
+            throw new Exception(__('百度网盘获取失败: ', 'wp-disk-link-manager') . $e->getMessage());
         }
     }
     
@@ -85,7 +85,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             $save_result = $this->save_quark_files($file_list, $share_info, $cookie);
             
             if (empty($save_result['file_ids'])) {
-                throw new Exception(__('文件转存失败，没有成功保存的文件', 'wp-disk-link-manager'));
+                throw new Exception(__('文件获取失败，没有成功保存的文件', 'wp-disk-link-manager'));
             }
             
             // 创建新的分享链接
@@ -112,7 +112,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
                 'quark_transfer_error',
                 null,
                 get_current_user_id(),
-                __('夸克网盘转存失败: ', 'wp-disk-link-manager') . $e->getMessage(),
+                __('夸克网盘获取失败: ', 'wp-disk-link-manager') . $e->getMessage(),
                 array(
                     'original_url' => $original_url,
                     'error_message' => $e->getMessage(),
@@ -120,7 +120,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
                 )
             );
             
-            throw new Exception(__('夸克网盘转存失败: ', 'wp-disk-link-manager') . $e->getMessage());
+            throw new Exception(__('夸克网盘获取失败: ', 'wp-disk-link-manager') . $e->getMessage());
         }
     }
     
