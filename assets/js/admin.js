@@ -1,5 +1,20 @@
 jQuery(document).ready(function($) {
     
+    // 导入方式切换
+    $('input[name="import_method"]').on('change', function() {
+        var method = $(this).val();
+        
+        if (method === 'upload') {
+            $('#upload-import-section').show();
+            $('#plugin-dir-import-section').hide();
+        } else {
+            $('#upload-import-section').hide();
+            $('#plugin-dir-import-section').show();
+            // 刷新文件列表
+            refreshPluginFileList();
+        }
+    });
+    
     // Excel导入处理
     $('#excel-upload-form').on('submit', function(e) {
         e.preventDefault();
@@ -313,7 +328,179 @@ jQuery(document).ready(function($) {
             },
             error: function() {
                 alert('网络错误');
-            }
-        });
-    });
-});
+                         }
+         });
+     });
+     
+     // 插件目录文件导入处理
+     $('#plugin-dir-import-form').on('submit', function(e) {
+         e.preventDefault();
+         
+         var pluginFile = $('#plugin_file').val();
+         
+         if (!pluginFile) {
+             alert('请选择文件');
+             return;
+         }
+         
+         // 显示进度条
+         showImportProgress();
+         
+         // 禁用表单
+         $('#plugin-dir-import-form input, #plugin-dir-import-form button, #plugin-dir-import-form select').prop('disabled', true);
+         
+         // 发送请求
+         $.ajax({
+             url: wpDiskLinkManagerAdmin.ajax_url,
+             type: 'POST',
+             data: {
+                 action: 'import_plugin_file',
+                 nonce: wpDiskLinkManagerAdmin.nonce,
+                 plugin_file: pluginFile,
+                 skip_first_row_plugin: $('input[name="skip_first_row_plugin"]').is(':checked') ? '1' : '0',
+                 post_status_plugin: $('input[name="post_status_plugin"]:checked').val()
+             },
+             success: function(response) {
+                 if (response.success) {
+                     updateProgress(100, '导入完成');
+                     showImportResults(response.data);
+                 } else {
+                     hideImportProgress();
+                     showImportError(response.data || '导入失败');
+                 }
+             },
+             error: function(xhr, status, error) {
+                 hideImportProgress();
+                 showImportError('网络错误：' + error);
+             },
+             complete: function() {
+                 // 重新启用表单
+                 $('#plugin-dir-import-form input, #plugin-dir-import-form button, #plugin-dir-import-form select').prop('disabled', false);
+             }
+         });
+     });
+     
+     // 文件预览功能
+     $(document).on('click', '.preview-file-btn', function(e) {
+         e.preventDefault();
+         
+         var $btn = $(this);
+         var filename = $btn.data('filename');
+         
+         $btn.prop('disabled', true).text('预览中...');
+         
+         $.ajax({
+             url: wpDiskLinkManagerAdmin.ajax_url,
+             type: 'POST',
+             data: {
+                 action: 'preview_plugin_file',
+                 nonce: wpDiskLinkManagerAdmin.nonce,
+                 filename: filename
+             },
+             success: function(response) {
+                 if (response.success) {
+                     showFilePreview(filename, response.data);
+                 } else {
+                     alert('预览失败：' + response.data);
+                 }
+             },
+             error: function() {
+                 alert('网络错误，无法预览文件');
+             },
+             complete: function() {
+                 $btn.prop('disabled', false).text('预览');
+             }
+         });
+     });
+     
+     // 显示文件预览
+     function showFilePreview(filename, data) {
+         var html = '<div class="file-preview-modal">';
+         html += '<div class="file-preview-content">';
+         html += '<div class="file-preview-header">';
+         html += '<h3>文件预览: ' + escapeHtml(filename) + '</h3>';
+         html += '<button class="close-preview">&times;</button>';
+         html += '</div>';
+         
+         // 数据分析
+         if (data.analysis) {
+             html += '<div class="file-analysis">';
+             html += '<h4>数据分析</h4>';
+             html += '<div class="analysis-stats">';
+             html += '<span class="stat">总行数: ' + data.analysis.total_rows + '</span>';
+             html += '<span class="stat">有效行数: ' + data.analysis.valid_rows + '</span>';
+             html += '<span class="stat">空行: ' + data.analysis.empty_rows + '</span>';
+             
+             if (data.analysis.missing_title > 0) {
+                 html += '<span class="stat error">缺少标题: ' + data.analysis.missing_title + '</span>';
+             }
+             if (data.analysis.missing_link > 0) {
+                 html += '<span class="stat error">缺少链接: ' + data.analysis.missing_link + '</span>';
+             }
+             if (data.analysis.invalid_links > 0) {
+                 html += '<span class="stat error">无效链接: ' + data.analysis.invalid_links + '</span>';
+             }
+             
+             html += '</div>';
+             
+             // 网盘类型分布
+             html += '<div class="disk-type-stats">';
+             html += '<h5>网盘类型分布</h5>';
+             for (var type in data.analysis.disk_types) {
+                 if (data.analysis.disk_types[type] > 0) {
+                     html += '<span class="disk-stat">' + type + ': ' + data.analysis.disk_types[type] + '</span>';
+                 }
+             }
+             html += '</div>';
+             html += '</div>';
+         }
+         
+         // 数据预览
+         html += '<div class="file-data-preview">';
+         html += '<h4>数据预览 (前' + data.preview_rows + '行)</h4>';
+         html += '<table class="preview-table">';
+         html += '<thead><tr><th>标题</th><th>网盘链接</th></tr></thead>';
+         html += '<tbody>';
+         
+         data.data.forEach(function(row, index) {
+             html += '<tr>';
+             html += '<td>' + escapeHtml(row[0] || '') + '</td>';
+             html += '<td>' + escapeHtml(row[1] || '') + '</td>';
+             html += '</tr>';
+         });
+         
+         html += '</tbody></table>';
+         
+         if (data.has_more) {
+             html += '<p class="preview-note">还有 ' + (data.total_rows - data.preview_rows) + ' 行未显示</p>';
+         }
+         
+         html += '</div>';
+         html += '</div>';
+         html += '</div>';
+         
+         // 显示预览窗口
+         $('body').append(html);
+         
+         // 绑定关闭事件
+         $('.close-preview, .file-preview-modal').on('click', function(e) {
+             if (e.target === this) {
+                 $('.file-preview-modal').remove();
+             }
+         });
+     }
+     
+     // 刷新插件文件列表
+     function refreshPluginFileList() {
+         // 刷新下拉列表
+         $('#plugin_file').load(location.href + ' #plugin_file option');
+     }
+     
+     // 选择文件时更新信息
+     $('#plugin_file').on('change', function() {
+         var filename = $(this).val();
+         if (filename) {
+             // 可以在这里添加文件信息显示
+         }
+     });
+ });
