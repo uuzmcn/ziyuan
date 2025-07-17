@@ -242,6 +242,16 @@ class WP_Disk_Link_Manager_Admin {
      * 导入页面
      */
     public function import_page() {
+        // 处理文件上传到插件目录
+        if (isset($_POST['upload_to_plugin_dir']) && wp_verify_nonce($_POST['_wpnonce'], 'upload_to_plugin_dir')) {
+            $this->handle_plugin_dir_upload();
+        }
+        
+        // 处理删除插件目录文件
+        if (isset($_POST['delete_plugin_file']) && wp_verify_nonce($_POST['_wpnonce'], 'delete_plugin_file')) {
+            $this->handle_plugin_file_delete();
+        }
+        
         ?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
@@ -258,45 +268,136 @@ class WP_Disk_Link_Manager_Admin {
                     </ul>
                 </div>
                 
-                <form id="excel-upload-form" enctype="multipart/form-data">
-                    <table class="form-table">
-                        <tr>
-                            <th scope="row"><?php _e('选择Excel文件', 'wp-disk-link-manager'); ?></th>
-                            <td>
-                                <input type="file" name="excel_file" id="excel_file" accept=".xls,.xlsx" required>
-                                <p class="description"><?php _e('选择要导入的Excel文件', 'wp-disk-link-manager'); ?></p>
-                            </td>
-                        </tr>
-                        
-                        <tr>
-                            <th scope="row"><?php _e('导入选项', 'wp-disk-link-manager'); ?></th>
-                            <td>
-                                <fieldset>
-                                    <label>
-                                        <input type="checkbox" name="skip_first_row" value="1" checked>
-                                        <?php _e('跳过第一行（标题行）', 'wp-disk-link-manager'); ?>
-                                    </label><br>
-                                    
-                                    <label>
-                                        <input type="radio" name="post_status" value="draft" checked>
-                                        <?php _e('导入为草稿', 'wp-disk-link-manager'); ?>
-                                    </label><br>
-                                    
-                                    <label>
-                                        <input type="radio" name="post_status" value="publish">
-                                        <?php _e('直接发布', 'wp-disk-link-manager'); ?>
-                                    </label>
-                                </fieldset>
-                            </td>
-                        </tr>
-                    </table>
+                <!-- 导入方式选择 -->
+                <div class="import-method-selector">
+                    <h3><?php _e('选择导入方式', 'wp-disk-link-manager'); ?></h3>
+                    <label>
+                        <input type="radio" name="import_method" value="upload" checked>
+                        <?php _e('上传文件导入', 'wp-disk-link-manager'); ?>
+                    </label>
+                    <label>
+                        <input type="radio" name="import_method" value="plugin_dir">
+                        <?php _e('从插件目录选择', 'wp-disk-link-manager'); ?>
+                    </label>
+                </div>
+                
+                <!-- 上传文件导入 -->
+                <div id="upload-import-section" class="import-section">
+                    <h3><?php _e('上传Excel文件', 'wp-disk-link-manager'); ?></h3>
                     
-                    <p class="submit">
-                        <button type="submit" class="button button-primary" id="import-btn">
-                            <?php _e('开始导入', 'wp-disk-link-manager'); ?>
-                        </button>
-                    </p>
-                </form>
+                    <form id="excel-upload-form" enctype="multipart/form-data">
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row"><?php _e('选择Excel文件', 'wp-disk-link-manager'); ?></th>
+                                <td>
+                                    <input type="file" name="excel_file" id="excel_file" accept=".xls,.xlsx" required>
+                                    <p class="description"><?php _e('选择要导入的Excel文件', 'wp-disk-link-manager'); ?></p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th scope="row"><?php _e('导入选项', 'wp-disk-link-manager'); ?></th>
+                                <td>
+                                    <fieldset>
+                                        <label>
+                                            <input type="checkbox" name="skip_first_row" value="1" checked>
+                                            <?php _e('跳过第一行（标题行）', 'wp-disk-link-manager'); ?>
+                                        </label><br>
+                                        
+                                        <label>
+                                            <input type="radio" name="post_status" value="draft" checked>
+                                            <?php _e('导入为草稿', 'wp-disk-link-manager'); ?>
+                                        </label><br>
+                                        
+                                        <label>
+                                            <input type="radio" name="post_status" value="publish">
+                                            <?php _e('直接发布', 'wp-disk-link-manager'); ?>
+                                        </label>
+                                    </fieldset>
+                                </td>
+                            </tr>
+                        </table>
+                        
+                        <p class="submit">
+                            <button type="submit" class="button button-primary" id="import-btn">
+                                <?php _e('开始导入', 'wp-disk-link-manager'); ?>
+                            </button>
+                        </p>
+                    </form>
+                </div>
+                
+                <!-- 插件目录文件选择 -->
+                <div id="plugin-dir-import-section" class="import-section" style="display: none;">
+                    <h3><?php _e('插件目录文件管理', 'wp-disk-link-manager'); ?></h3>
+                    
+                    <!-- 上传到插件目录 -->
+                    <div class="plugin-dir-upload">
+                        <h4><?php _e('上传文件到插件目录', 'wp-disk-link-manager'); ?></h4>
+                        <form method="post" enctype="multipart/form-data">
+                            <?php wp_nonce_field('upload_to_plugin_dir'); ?>
+                            <table class="form-table">
+                                <tr>
+                                    <th scope="row"><?php _e('选择Excel文件', 'wp-disk-link-manager'); ?></th>
+                                    <td>
+                                        <input type="file" name="plugin_excel_file" accept=".xls,.xlsx" required>
+                                        <input type="submit" name="upload_to_plugin_dir" class="button" value="<?php _e('上传到插件目录', 'wp-disk-link-manager'); ?>">
+                                        <p class="description"><?php _e('文件将保存到插件的excel目录中，供重复使用', 'wp-disk-link-manager'); ?></p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </form>
+                    </div>
+                    
+                    <!-- 插件目录文件列表 -->
+                    <div class="plugin-dir-files">
+                        <h4><?php _e('插件目录中的Excel文件', 'wp-disk-link-manager'); ?></h4>
+                        <?php $this->display_plugin_dir_files(); ?>
+                    </div>
+                    
+                    <!-- 从插件目录导入 -->
+                    <form id="plugin-dir-import-form">
+                        <table class="form-table">
+                            <tr>
+                                <th scope="row"><?php _e('选择文件', 'wp-disk-link-manager'); ?></th>
+                                <td>
+                                    <select name="plugin_file" id="plugin_file" required>
+                                        <option value=""><?php _e('请选择文件', 'wp-disk-link-manager'); ?></option>
+                                        <?php $this->render_plugin_file_options(); ?>
+                                    </select>
+                                    <p class="description"><?php _e('从插件目录选择要导入的Excel文件', 'wp-disk-link-manager'); ?></p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th scope="row"><?php _e('导入选项', 'wp-disk-link-manager'); ?></th>
+                                <td>
+                                    <fieldset>
+                                        <label>
+                                            <input type="checkbox" name="skip_first_row_plugin" value="1" checked>
+                                            <?php _e('跳过第一行（标题行）', 'wp-disk-link-manager'); ?>
+                                        </label><br>
+                                        
+                                        <label>
+                                            <input type="radio" name="post_status_plugin" value="draft" checked>
+                                            <?php _e('导入为草稿', 'wp-disk-link-manager'); ?>
+                                        </label><br>
+                                        
+                                        <label>
+                                            <input type="radio" name="post_status_plugin" value="publish">
+                                            <?php _e('直接发布', 'wp-disk-link-manager'); ?>
+                                        </label>
+                                    </fieldset>
+                                </td>
+                            </tr>
+                        </table>
+                        
+                        <p class="submit">
+                            <button type="submit" class="button button-primary" id="plugin-import-btn">
+                                <?php _e('从插件目录导入', 'wp-disk-link-manager'); ?>
+                            </button>
+                        </p>
+                    </form>
+                </div>
                 
                 <div id="import-progress" style="display: none;">
                     <h3><?php _e('导入进度', 'wp-disk-link-manager'); ?></h3>
