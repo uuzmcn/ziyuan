@@ -364,4 +364,120 @@ class WP_Disk_Link_Manager_Excel_Importer {
                 return __('下载链接', 'wp-disk-link-manager');
         }
     }
+    
+    /**
+     * 从插件目录导入Excel文件
+     */
+    public function import_from_plugin_dir($file_path, $skip_first_row = true, $post_status = 'draft') {
+        if (!file_exists($file_path)) {
+            throw new Exception(__('文件不存在', 'wp-disk-link-manager'));
+        }
+        
+        try {
+            // 读取Excel数据
+            $data = $this->read_excel_file($file_path);
+            
+            // 处理数据
+            $result = $this->process_data($data, $skip_first_row, $post_status);
+            
+            // 记录日志
+            WP_Disk_Link_Manager_Logger::log('excel_import_plugin_dir', null, get_current_user_id(), 
+                sprintf(__('从插件目录导入了 %d 篇文章，文件：%s', 'wp-disk-link-manager'), $result['success_count'], basename($file_path)), 
+                array('total' => $result['total'], 'success' => $result['success_count'], 'errors' => $result['errors'], 'file' => basename($file_path))
+            );
+            
+            return $result;
+            
+        } catch (Exception $e) {
+            throw new Exception(__('从插件目录导入失败: ', 'wp-disk-link-manager') . $e->getMessage());
+        }
+    }
+    
+    /**
+     * 预览Excel文件内容
+     */
+    public function preview_file($file_path, $preview_rows = 10) {
+        if (!file_exists($file_path)) {
+            throw new Exception(__('文件不存在', 'wp-disk-link-manager'));
+        }
+        
+        try {
+            // 读取Excel数据
+            $data = $this->read_excel_file($file_path);
+            
+            if (empty($data)) {
+                throw new Exception(__('Excel文件为空', 'wp-disk-link-manager'));
+            }
+            
+            $total_rows = count($data);
+            $preview_data = array_slice($data, 0, $preview_rows);
+            
+            $result = array(
+                'total_rows' => $total_rows,
+                'preview_rows' => count($preview_data),
+                'data' => $preview_data,
+                'has_more' => $total_rows > $preview_rows
+            );
+            
+            // 分析数据质量
+            $analysis = $this->analyze_data($data);
+            $result['analysis'] = $analysis;
+            
+            return $result;
+            
+        } catch (Exception $e) {
+            throw new Exception(__('预览文件失败: ', 'wp-disk-link-manager') . $e->getMessage());
+        }
+    }
+    
+    /**
+     * 分析Excel数据质量
+     */
+    private function analyze_data($data) {
+        $analysis = array(
+            'total_rows' => count($data),
+            'valid_rows' => 0,
+            'empty_rows' => 0,
+            'missing_title' => 0,
+            'missing_link' => 0,
+            'invalid_links' => 0,
+            'disk_types' => array(
+                'baidu' => 0,
+                'quark' => 0,
+                'xunlei' => 0,
+                'magnet' => 0,
+                'unknown' => 0
+            )
+        );
+        
+        foreach ($data as $row_index => $row) {
+            if (empty($row[0]) && empty($row[1])) {
+                $analysis['empty_rows']++;
+                continue;
+            }
+            
+            $title = trim($row[0] ?? '');
+            $link = trim($row[1] ?? '');
+            
+            if (empty($title)) {
+                $analysis['missing_title']++;
+            }
+            
+            if (empty($link)) {
+                $analysis['missing_link']++;
+            }
+            
+            if (!empty($title) && !empty($link)) {
+                if ($this->validate_disk_link($link)) {
+                    $disk_type = $this->get_disk_type($link);
+                    $analysis['disk_types'][$disk_type]++;
+                    $analysis['valid_rows']++;
+                } else {
+                    $analysis['invalid_links']++;
+                }
+            }
+        }
+        
+        return $analysis;
+    }
 }
