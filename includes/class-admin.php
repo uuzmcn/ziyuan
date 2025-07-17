@@ -11,6 +11,7 @@ class WP_Disk_Link_Manager_Admin {
         add_action('wp_ajax_upload_excel', array($this, 'handle_excel_upload'));
         add_action('wp_ajax_import_plugin_file', array($this, 'handle_plugin_file_import'));
         add_action('wp_ajax_preview_plugin_file', array($this, 'handle_plugin_file_preview'));
+        add_action('wp_ajax_test_disk_cookie', array($this, 'handle_test_disk_cookie'));
     }
     
     /**
@@ -189,10 +190,12 @@ class WP_Disk_Link_Manager_Admin {
                         <td>
                             <h4><?php _e('百度网盘Cookie', 'wp-disk-link-manager'); ?></h4>
                             <textarea name="wp_disk_link_manager_baidu_cookie" rows="5" cols="50" class="large-text"><?php echo esc_textarea(get_option('wp_disk_link_manager_baidu_cookie')); ?></textarea>
+                            <button type="button" class="test-cookie-btn" data-disk-type="baidu"><?php _e('测试Cookie', 'wp-disk-link-manager'); ?></button>
                             <p class="description"><?php _e('从浏览器开发者工具中复制完整的Cookie', 'wp-disk-link-manager'); ?></p>
                             
                             <h4><?php _e('夸克网盘Cookie', 'wp-disk-link-manager'); ?></h4>
                             <textarea name="wp_disk_link_manager_quark_cookie" rows="5" cols="50" class="large-text"><?php echo esc_textarea(get_option('wp_disk_link_manager_quark_cookie')); ?></textarea>
+                            <button type="button" class="test-cookie-btn" data-disk-type="quark"><?php _e('测试Cookie', 'wp-disk-link-manager'); ?></button>
                             <p class="description"><?php _e('从浏览器开发者工具中复制完整的Cookie', 'wp-disk-link-manager'); ?></p>
                         </td>
                     </tr>
@@ -892,5 +895,151 @@ class WP_Disk_Link_Manager_Admin {
         } catch (Exception $e) {
             wp_send_json_error($e->getMessage());
         }
+    }
+    
+    /**
+     * 处理Cookie测试
+     */
+    public function handle_test_disk_cookie() {
+        check_ajax_referer('wp_disk_link_manager_admin_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_die(__('权限不足', 'wp-disk-link-manager'));
+        }
+        
+        $disk_type = sanitize_text_field($_POST['disk_type']);
+        $cookie = sanitize_textarea_field($_POST['cookie']);
+        
+        if (empty($cookie)) {
+            wp_send_json_error(__('Cookie不能为空', 'wp-disk-link-manager'));
+        }
+        
+        try {
+            if ($disk_type === 'quark') {
+                $result = $this->test_quark_cookie($cookie);
+            } elseif ($disk_type === 'baidu') {
+                $result = $this->test_baidu_cookie($cookie);
+            } else {
+                wp_send_json_error(__('不支持的网盘类型', 'wp-disk-link-manager'));
+            }
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'user_info' => $result['user_info'] ?? null
+            ));
+            
+        } catch (Exception $e) {
+            wp_send_json_error($e->getMessage());
+        }
+    }
+    
+    /**
+     * 测试夸克网盘Cookie
+     */
+    private function test_quark_cookie($cookie) {
+        $headers = array(
+            'Cookie: ' . $cookie,
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer: https://pan.quark.cn/'
+        );
+        
+        // 测试获取用户容量信息
+        $user_info_url = 'https://drive-pc.quark.cn/1/clouddrive/capacity';
+        
+        $args = array(
+            'method' => 'GET',
+            'headers' => $headers,
+            'timeout' => 30,
+            'sslverify' => false
+        );
+        
+        $response = wp_remote_request($user_info_url, $args);
+        
+        if (is_wp_error($response)) {
+            throw new Exception(__('网络请求失败: ', 'wp-disk-link-manager') . $response->get_error_message());
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        $response_body = wp_remote_retrieve_body($response);
+        
+        if ($status_code !== 200) {
+            throw new Exception(__('HTTP请求失败，状态码: ', 'wp-disk-link-manager') . $status_code);
+        }
+        
+        $data = json_decode($response_body, true);
+        
+        if (!$data) {
+            throw new Exception(__('响应数据解析失败', 'wp-disk-link-manager'));
+        }
+        
+        if ($data['code'] !== 0) {
+            throw new Exception(__('夸克网盘Cookie无效或已过期', 'wp-disk-link-manager'));
+        }
+        
+        // 获取用户信息
+        $user_info = array(
+            'total_capacity' => $this->format_file_size($data['data']['total_capacity'] ?? 0),
+            'used_capacity' => $this->format_file_size($data['data']['used_capacity'] ?? 0)
+        );
+        
+        return array(
+            'message' => __('夸克网盘Cookie有效', 'wp-disk-link-manager'),
+            'user_info' => $user_info
+        );
+    }
+    
+    /**
+     * 测试百度网盘Cookie
+     */
+    private function test_baidu_cookie($cookie) {
+        $headers = array(
+            'Cookie: ' . $cookie,
+            'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer: https://pan.baidu.com/'
+        );
+        
+        // 测试获取用户信息
+        $user_info_url = 'https://pan.baidu.com/api/quota';
+        
+        $args = array(
+            'method' => 'GET',
+            'headers' => $headers,
+            'timeout' => 30,
+            'sslverify' => false
+        );
+        
+        $response = wp_remote_request($user_info_url, $args);
+        
+        if (is_wp_error($response)) {
+            throw new Exception(__('网络请求失败: ', 'wp-disk-link-manager') . $response->get_error_message());
+        }
+        
+        $status_code = wp_remote_retrieve_response_code($response);
+        $response_body = wp_remote_retrieve_body($response);
+        
+        if ($status_code !== 200) {
+            throw new Exception(__('HTTP请求失败，状态码: ', 'wp-disk-link-manager') . $status_code);
+        }
+        
+        $data = json_decode($response_body, true);
+        
+        if (!$data) {
+            throw new Exception(__('响应数据解析失败', 'wp-disk-link-manager'));
+        }
+        
+        if ($data['errno'] !== 0) {
+            throw new Exception(__('百度网盘Cookie无效或已过期', 'wp-disk-link-manager'));
+        }
+        
+        // 获取用户信息
+        $user_info = array(
+            'total_capacity' => $this->format_file_size($data['total'] ?? 0),
+            'used_capacity' => $this->format_file_size($data['used'] ?? 0)
+        );
+        
+        return array(
+            'message' => __('百度网盘Cookie有效', 'wp-disk-link-manager'),
+            'user_info' => $user_info
+        );
     }
 }
