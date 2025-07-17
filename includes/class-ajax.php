@@ -2,14 +2,20 @@
 /**
  * AJAX处理类
  */
+
+// 防止直接访问
+if (!defined('ABSPATH')) {
+    exit;
+}
 class WP_Disk_Link_Manager_Ajax {
     
     private $logger;
     private $disk_manager;
     
     public function __construct() {
-        $this->logger = new WP_Disk_Link_Manager_Logger();
-        $this->disk_manager = new WP_Disk_Link_Manager_Disk_Manager();
+        // 延迟初始化以避免循环依赖
+        $this->logger = null;
+        $this->disk_manager = null;
         
         // 用户端AJAX处理
         add_action('wp_ajax_transfer_disk_link', array($this, 'handle_transfer_request'));
@@ -18,6 +24,26 @@ class WP_Disk_Link_Manager_Ajax {
         // 获取转存状态
         add_action('wp_ajax_get_transfer_status', array($this, 'get_transfer_status'));
         add_action('wp_ajax_nopriv_get_transfer_status', array($this, 'get_transfer_status'));
+    }
+    
+    /**
+     * 获取logger实例
+     */
+    private function get_logger() {
+        if ($this->logger === null) {
+            $this->logger = new WP_Disk_Link_Manager_Logger();
+        }
+        return $this->logger;
+    }
+    
+    /**
+     * 获取disk_manager实例
+     */
+    private function get_disk_manager() {
+        if ($this->disk_manager === null) {
+            $this->disk_manager = new WP_Disk_Link_Manager_Disk_Manager();
+        }
+        return $this->disk_manager;
     }
     
     /**
@@ -33,7 +59,7 @@ class WP_Disk_Link_Manager_Ajax {
             $end_time = microtime(true);
             $end_memory = memory_get_usage();
             
-            $this->logger->log(
+            $this->get_logger()->log(
                 'performance_monitor',
                 null,
                 get_current_user_id(),
@@ -50,7 +76,7 @@ class WP_Disk_Link_Manager_Ajax {
         } catch (Exception $e) {
             $end_time = microtime(true);
             
-            $this->logger->log(
+            $this->get_logger()->log(
                 'performance_error',
                 null,
                 get_current_user_id(),
@@ -260,7 +286,7 @@ class WP_Disk_Link_Manager_Ajax {
             );
             
             // 记录日志
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'transfer_completed',
                 $transfer->post_id,
                 $transfer->user_id,
@@ -283,7 +309,7 @@ class WP_Disk_Link_Manager_Ajax {
             );
             
             // 记录错误日志
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'transfer_failed',
                 $transfer->post_id,
                 $transfer->user_id,

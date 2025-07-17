@@ -2,12 +2,28 @@
 /**
  * 网盘管理器类
  */
+
+// 防止直接访问
+if (!defined('ABSPATH')) {
+    exit;
+}
 class WP_Disk_Link_Manager_Disk_Manager {
     
     private $logger;
     
     public function __construct() {
-        $this->logger = new WP_Disk_Link_Manager_Logger();
+        // 延迟初始化logger以避免循环依赖
+        $this->logger = null;
+    }
+    
+    /**
+     * 获取logger实例
+     */
+    private function get_logger() {
+        if ($this->logger === null) {
+            $this->logger = new WP_Disk_Link_Manager_Logger();
+        }
+        return $this->logger;
     }
     
     /**
@@ -31,7 +47,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
         }
         
         // 记录请求日志
-        $this->logger->log(
+        $this->get_logger()->log(
             'api_request_start',
             null,
             get_current_user_id(),
@@ -45,7 +61,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
         $response_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
         
-        $this->logger->log(
+        $this->get_logger()->log(
             'api_response',
             null,
             get_current_user_id(),
@@ -79,7 +95,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
                 
                 $delay = $base_delay * pow(2, $attempt - 1);
                 
-                $this->logger->log(
+                $this->get_logger()->log(
                     'api_retry',
                     null,
                     get_current_user_id(),
@@ -142,7 +158,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
         $this->rate_limit_check('baidu_api');
         
         // 记录开始日志
-        $this->logger->log(
+        $this->get_logger()->log(
             'baidu_transfer_start',
             null,
             get_current_user_id(),
@@ -158,7 +174,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             
         } catch (Exception $e) {
             // 记录详细错误
-            $this->logger->log(
+            $this->get_logger()->log(
                 'baidu_transfer_error',
                 null,
                 get_current_user_id(),
@@ -206,7 +222,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
         $this->rate_limit_check('quark_api');
         
         // 记录详细的调试信息
-        $this->logger->log(
+        $this->get_logger()->log(
             'quark_transfer_start',
             null,
             get_current_user_id(),
@@ -222,7 +238,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             
         } catch (Exception $e) {
             // 记录详细错误
-            $this->logger->log(
+            $this->get_logger()->log(
                 'quark_transfer_error',
                 null,
                 get_current_user_id(),
@@ -263,7 +279,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             $new_share_url = $this->create_quark_share_optimized($save_result['file_ids']);
             
             // 记录成功日志
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'quark_transfer_success',
                 null,
                 get_current_user_id(),
@@ -279,7 +295,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             
         } catch (Exception $e) {
             // 记录详细错误日志
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'quark_transfer_error',
                 null,
                 get_current_user_id(),
@@ -479,7 +495,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             
         } catch (Exception $e) {
             // 记录详细错误信息
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'quark_get_file_list_error',
                 null,
                 get_current_user_id(),
@@ -599,7 +615,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
                         $saved_files[] = $file['fid'];
                     }
                     
-                    WP_Disk_Link_Manager_Logger::log(
+                    $this->get_logger()->log(
                         'quark_save_file_success',
                         null,
                         get_current_user_id(),
@@ -613,7 +629,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
                         'error' => $error_msg
                     );
                     
-                    WP_Disk_Link_Manager_Logger::log(
+                    $this->get_logger()->log(
                         'quark_save_file_failed',
                         null,
                         get_current_user_id(),
@@ -631,7 +647,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
                     'error' => $e->getMessage()
                 );
                 
-                WP_Disk_Link_Manager_Logger::log(
+                $this->get_logger()->log(
                     'quark_save_file_exception',
                     null,
                     get_current_user_id(),
@@ -733,7 +749,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
                 }
             } catch (Exception $e) {
                 // 记录删除失败的日志
-                WP_Disk_Link_Manager_Logger::log(
+                $this->get_logger()->log(
                     'delete_failed',
                     $record->post_id,
                     0,
@@ -775,7 +791,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
         }
         
         // 记录请求详情（用于调试）
-        WP_Disk_Link_Manager_Logger::log(
+        $this->get_logger()->log(
             'http_request_debug',
             null,
             get_current_user_id(),
@@ -792,7 +808,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
         
         if (is_wp_error($response)) {
             $error_message = $response->get_error_message();
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'http_request_error',
                 null,
                 get_current_user_id(),
@@ -806,7 +822,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
         $response_body = wp_remote_retrieve_body($response);
         
         // 记录响应状态
-        WP_Disk_Link_Manager_Logger::log(
+        $this->get_logger()->log(
             'http_response_debug',
             null,
             get_current_user_id(),
@@ -829,7 +845,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             }
             
             // 记录详细错误
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'http_error_response',
                 null,
                 get_current_user_id(),
@@ -914,7 +930,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
             return true;
             
         } catch (Exception $e) {
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'quark_cookie_validation_error',
                 null,
                 get_current_user_id(),
@@ -965,7 +981,7 @@ class WP_Disk_Link_Manager_Disk_Manager {
                 $waited += 2;
                 
             } catch (Exception $e) {
-                WP_Disk_Link_Manager_Logger::log(
+                $this->get_logger()->log(
                     'quark_task_wait_error',
                     null,
                     get_current_user_id(),

@@ -2,14 +2,20 @@
 /**
  * 管理后台类
  */
+
+// 防止直接访问
+if (!defined('ABSPATH')) {
+    exit;
+}
 class WP_Disk_Link_Manager_Admin {
     
     private $disk_manager;
     private $logger;
     
     public function __construct() {
-        $this->disk_manager = new WP_Disk_Link_Manager_Disk_Manager();
-        $this->logger = new WP_Disk_Link_Manager_Logger();
+        // 延迟初始化以避免循环依赖
+        $this->disk_manager = null;
+        $this->logger = null;
         
         add_action('admin_menu', array($this, 'add_admin_menu'));
         add_action('admin_init', array($this, 'register_settings'));
@@ -19,6 +25,26 @@ class WP_Disk_Link_Manager_Admin {
         add_action('wp_ajax_preview_plugin_file', array($this, 'handle_plugin_file_preview'));
         add_action('wp_ajax_test_disk_cookie', array($this, 'handle_test_disk_cookie'));
         add_action('wp_ajax_validate_all_cookies', array($this, 'handle_validate_all_cookies'));
+    }
+    
+    /**
+     * 获取disk_manager实例
+     */
+    private function get_disk_manager() {
+        if ($this->disk_manager === null) {
+            $this->disk_manager = new WP_Disk_Link_Manager_Disk_Manager();
+        }
+        return $this->disk_manager;
+    }
+    
+    /**
+     * 获取logger实例
+     */
+    private function get_logger() {
+        if ($this->logger === null) {
+            $this->logger = new WP_Disk_Link_Manager_Logger();
+        }
+        return $this->logger;
     }
     
     /**
@@ -665,7 +691,7 @@ class WP_Disk_Link_Manager_Admin {
             });
             
             // 记录日志
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'plugin_file_upload',
                 null,
                 get_current_user_id(),
@@ -709,7 +735,7 @@ class WP_Disk_Link_Manager_Admin {
             });
             
             // 记录日志
-            WP_Disk_Link_Manager_Logger::log(
+            $this->get_logger()->log(
                 'plugin_file_delete',
                 null,
                 get_current_user_id(),
@@ -922,7 +948,7 @@ class WP_Disk_Link_Manager_Admin {
         }
         
         // 记录测试开始
-        $this->logger->log(
+        $this->get_logger()->log(
             'cookie_test_start',
             null,
             get_current_user_id(),
@@ -934,17 +960,17 @@ class WP_Disk_Link_Manager_Admin {
             $result = null;
             
             if ($disk_type === 'quark') {
-                $result = $this->disk_manager->validate_quark_cookie($cookie);
+                $result = $this->get_disk_manager()->validate_quark_cookie($cookie);
                 $message = $result ? '夸克网盘Cookie有效' : '夸克网盘Cookie无效';
             } elseif ($disk_type === 'baidu') {
-                $result = $this->disk_manager->validate_baidu_cookie($cookie);
+                $result = $this->get_disk_manager()->validate_baidu_cookie($cookie);
                 $message = $result ? '百度网盘Cookie有效' : '百度网盘Cookie无效';
             } else {
                 wp_send_json_error(__('不支持的网盘类型', 'wp-disk-link-manager'));
             }
             
             // 记录测试结果
-            $this->logger->log(
+            $this->get_logger()->log(
                 'cookie_test_result',
                 null,
                 get_current_user_id(),
@@ -960,7 +986,7 @@ class WP_Disk_Link_Manager_Admin {
             
         } catch (Exception $e) {
             // 记录测试错误
-            $this->logger->log(
+            $this->get_logger()->log(
                 'cookie_test_error',
                 null,
                 get_current_user_id(),
@@ -988,7 +1014,7 @@ class WP_Disk_Link_Manager_Admin {
         $quark_cookie = get_option('wp_disk_link_manager_quark_cookie', '');
         if (!empty($quark_cookie)) {
             try {
-                $results['quark'] = $this->disk_manager->validate_quark_cookie($quark_cookie);
+                $results['quark'] = $this->get_disk_manager()->validate_quark_cookie($quark_cookie);
             } catch (Exception $e) {
                 $results['quark'] = false;
             }
@@ -1000,7 +1026,7 @@ class WP_Disk_Link_Manager_Admin {
         $baidu_cookie = get_option('wp_disk_link_manager_baidu_cookie', '');
         if (!empty($baidu_cookie)) {
             try {
-                $results['baidu'] = $this->disk_manager->validate_baidu_cookie($baidu_cookie);
+                $results['baidu'] = $this->get_disk_manager()->validate_baidu_cookie($baidu_cookie);
             } catch (Exception $e) {
                 $results['baidu'] = false;
             }

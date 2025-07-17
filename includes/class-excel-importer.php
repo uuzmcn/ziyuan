@@ -2,7 +2,28 @@
 /**
  * Excel导入器类
  */
+
+// 防止直接访问
+if (!defined('ABSPATH')) {
+    exit;
+}
 class WP_Disk_Link_Manager_Excel_Importer {
+    
+    private $logger;
+    
+    public function __construct() {
+        $this->logger = null;
+    }
+    
+    /**
+     * 获取logger实例
+     */
+    private function get_logger() {
+        if ($this->logger === null) {
+            $this->logger = new WP_Disk_Link_Manager_Logger();
+        }
+        return $this->logger;
+    }
     
     /**
      * 导入Excel文件
@@ -34,7 +55,7 @@ class WP_Disk_Link_Manager_Excel_Importer {
             $result = $this->process_data($data, $skip_first_row, $post_status);
             
             // 记录日志
-            WP_Disk_Link_Manager_Logger::log('excel_import', null, get_current_user_id(), 
+            $this->get_logger()->log('excel_import', null, get_current_user_id(), 
                 sprintf(__('导入了 %d 篇文章', 'wp-disk-link-manager'), $result['success_count']), 
                 array('total' => $result['total'], 'success' => $result['success_count'], 'errors' => $result['errors'])
             );
@@ -381,7 +402,7 @@ class WP_Disk_Link_Manager_Excel_Importer {
             $result = $this->process_data($data, $skip_first_row, $post_status);
             
             // 记录日志
-            WP_Disk_Link_Manager_Logger::log('excel_import_plugin_dir', null, get_current_user_id(), 
+            $this->get_logger()->log('excel_import_plugin_dir', null, get_current_user_id(), 
                 sprintf(__('从插件目录导入了 %d 篇文章，文件：%s', 'wp-disk-link-manager'), $result['success_count'], basename($file_path)), 
                 array('total' => $result['total'], 'success' => $result['success_count'], 'errors' => $result['errors'], 'file' => basename($file_path))
             );

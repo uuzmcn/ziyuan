@@ -2,14 +2,20 @@
 /**
  * 定时任务类 (优化版)
  */
+
+// 防止直接访问
+if (!defined('ABSPATH')) {
+    exit;
+}
 class WP_Disk_Link_Manager_Cron {
     
     private $logger;
     private $disk_manager;
     
     public function __construct() {
-        $this->logger = new WP_Disk_Link_Manager_Logger();
-        $this->disk_manager = new WP_Disk_Link_Manager_Disk_Manager();
+        // 延迟初始化以避免循环依赖
+        $this->logger = null;
+        $this->disk_manager = null;
         
         // 注册定时任务
         add_action('wp_disk_link_manager_cleanup_expired_files', array($this, 'cleanup_expired_files'));
@@ -31,12 +37,32 @@ class WP_Disk_Link_Manager_Cron {
     }
     
     /**
+     * 获取logger实例
+     */
+    private function get_logger() {
+        if ($this->logger === null) {
+            $this->logger = new WP_Disk_Link_Manager_Logger();
+        }
+        return $this->logger;
+    }
+    
+    /**
+     * 获取disk_manager实例
+     */
+    private function get_disk_manager() {
+        if ($this->disk_manager === null) {
+            $this->disk_manager = new WP_Disk_Link_Manager_Disk_Manager();
+        }
+        return $this->disk_manager;
+    }
+    
+    /**
      * 清理过期文件
      */
     public function cleanup_expired_files() {
         global $wpdb;
         
-        $this->logger->log(
+        $this->get_logger()->log(
             'cron_cleanup_start',
             null,
             0,
@@ -71,7 +97,7 @@ class WP_Disk_Link_Manager_Cron {
                     
                     $cleanup_count++;
                     
-                    $this->logger->log(
+                    $this->get_logger()->log(
                         'file_expired',
                         $transfer->post_id,
                         0,
@@ -84,7 +110,7 @@ class WP_Disk_Link_Manager_Cron {
                     );
                     
                 } catch (Exception $e) {
-                    $this->logger->log(
+                    $this->get_logger()->log(
                         'cleanup_error',
                         $transfer->post_id,
                         0,
@@ -94,7 +120,7 @@ class WP_Disk_Link_Manager_Cron {
                 }
             }
             
-            $this->logger->log(
+            $this->get_logger()->log(
                 'cron_cleanup_complete',
                 null,
                 0,
@@ -102,7 +128,7 @@ class WP_Disk_Link_Manager_Cron {
             );
             
         } catch (Exception $e) {
-            $this->logger->log(
+            $this->get_logger()->log(
                 'cron_cleanup_error',
                 null,
                 0,
@@ -115,7 +141,7 @@ class WP_Disk_Link_Manager_Cron {
      * 验证所有Cookie有效性
      */
     public function validate_all_cookies() {
-        $this->logger->log(
+        $this->get_logger()->log(
             'cron_cookie_validation_start',
             null,
             0,
@@ -128,10 +154,10 @@ class WP_Disk_Link_Manager_Cron {
         $quark_cookie = get_option('wp_disk_link_manager_quark_cookie', '');
         if (!empty($quark_cookie)) {
             try {
-                $results['quark'] = $this->disk_manager->validate_quark_cookie($quark_cookie);
+                $results['quark'] = $this->get_disk_manager()->validate_quark_cookie($quark_cookie);
                 
                 if (!$results['quark']) {
-                    $this->logger->log(
+                    $this->get_logger()->log(
                         'cookie_invalid_alert',
                         null,
                         0,
@@ -144,7 +170,7 @@ class WP_Disk_Link_Manager_Cron {
                 
             } catch (Exception $e) {
                 $results['quark'] = false;
-                $this->logger->log(
+                $this->get_logger()->log(
                     'cookie_validation_error',
                     null,
                     0,
@@ -157,10 +183,10 @@ class WP_Disk_Link_Manager_Cron {
         $baidu_cookie = get_option('wp_disk_link_manager_baidu_cookie', '');
         if (!empty($baidu_cookie)) {
             try {
-                $results['baidu'] = $this->disk_manager->validate_baidu_cookie($baidu_cookie);
+                $results['baidu'] = $this->get_disk_manager()->validate_baidu_cookie($baidu_cookie);
                 
                 if (!$results['baidu']) {
-                    $this->logger->log(
+                    $this->get_logger()->log(
                         'cookie_invalid_alert',
                         null,
                         0,
@@ -172,7 +198,7 @@ class WP_Disk_Link_Manager_Cron {
                 
             } catch (Exception $e) {
                 $results['baidu'] = false;
-                $this->logger->log(
+                $this->get_logger()->log(
                     'cookie_validation_error',
                     null,
                     0,
@@ -181,7 +207,7 @@ class WP_Disk_Link_Manager_Cron {
             }
         }
         
-        $this->logger->log(
+        $this->get_logger()->log(
             'cron_cookie_validation_complete',
             null,
             0,
@@ -196,7 +222,7 @@ class WP_Disk_Link_Manager_Cron {
     public function generate_performance_report() {
         global $wpdb;
         
-        $this->logger->log(
+        $this->get_logger()->log(
             'performance_report_start',
             null,
             0,
@@ -259,7 +285,7 @@ class WP_Disk_Link_Manager_Cron {
                 'generated_at' => current_time('mysql')
             ];
             
-            $this->logger->log(
+            $this->get_logger()->log(
                 'performance_report',
                 null,
                 0,
@@ -271,7 +297,7 @@ class WP_Disk_Link_Manager_Cron {
             update_option('wp_disk_link_manager_performance_report', $report);
             
         } catch (Exception $e) {
-            $this->logger->log(
+            $this->get_logger()->log(
                 'performance_report_error',
                 null,
                 0,

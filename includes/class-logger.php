@@ -2,6 +2,11 @@
 /**
  * 日志记录器类
  */
+
+// 防止直接访问
+if (!defined('ABSPATH')) {
+    exit;
+}
 class WP_Disk_Link_Manager_Logger {
     
     /**

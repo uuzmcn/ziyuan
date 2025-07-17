@@ -2,6 +2,11 @@
 /**
  * 主插件类
  */
+
+// 防止直接访问
+if (!defined('ABSPATH')) {
+    exit;
+}
 class WP_Disk_Link_Manager {
     
     /**
