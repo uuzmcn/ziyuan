@@ -1,0 +1,225 @@
+/* WP Disk Link Manager - 前端样式 */
+
+.wp-disk-link-button {
+    display: inline-block;
+    padding: 8px 16px;
+    margin: 5px 0;
+    background: #0073aa;
+    color: #fff;
+    text-decoration: none;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    text-align: center;
+    min-width: 100px;
+}
+
+.wp-disk-link-button:hover {
+    background: #005177;
+    color: #fff;
+    text-decoration: none;
+}
+
+.wp-disk-link-button:focus {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(0, 115, 170, 0.3);
+}
+
+/* 不同网盘类型的按钮颜色 */
+.wp-disk-link-button.baidu {
+    background: #2932e1;
+}
+
+.wp-disk-link-button.baidu:hover {
+    background: #1f26a8;
+}
+
+.wp-disk-link-button.quark {
+    background: #00b96b;
+}
+
+.wp-disk-link-button.quark:hover {
+    background: #008f52;
+}
+
+.wp-disk-link-button.xunlei {
+    background: #ff6900;
+}
+
+.wp-disk-link-button.xunlei:hover {
+    background: #e55a00;
+}
+
+.wp-disk-link-button.magnet {
+    background: #dc3232;
+}
+
+.wp-disk-link-button.magnet:hover {
+    background: #b32d2e;
+}
+
+/* 转存按钮状态 */
+.wp-disk-link-button.transfer-button {
+    position: relative;
+}
+
+.wp-disk-link-button.loading {
+    background: #666;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.wp-disk-link-button.loading::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    margin: auto;
+    border: 2px solid transparent;
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    top: 0;
+    bottom: 0;
+    left: 8px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.wp-disk-link-button.transfer-success {
+    background: #46b450;
+}
+
+.wp-disk-link-button.transfer-error {
+    background: #dc3232;
+}
+
+/* 转存链接样式 */
+.wp-disk-link-button.transfer-link {
+    background: #46b450;
+    position: relative;
+}
+
+.wp-disk-link-button.transfer-link::before {
+    content: '✓ ';
+    margin-right: 4px;
+}
+
+/* 过期时间提示 */
+.expire-notice {
+    font-size: 0.8em !important;
+    color: #666 !important;
+    margin-left: 5px !important;
+    font-style: italic;
+}
+
+/* 错误消息 */
+.transfer-error-message {
+    color: #dc3232;
+    font-size: 0.9em;
+    margin-left: 5px;
+}
+
+/* 复制按钮 */
+.copy-link-btn {
+    display: inline-block;
+    padding: 4px 8px;
+    margin-left: 8px;
+    background: #f0f0f1;
+    color: #50575e;
+    text-decoration: none;
+    border: 1px solid #c3c4c7;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.copy-link-btn:hover {
+    background: #e9e9ea;
+    border-color: #8c8f94;
+    text-decoration: none;
+}
+
+.copy-link-btn.copy-success {
+    background: #46b450;
+    color: #fff;
+    border-color: #46b450;
+}
+
+.copy-link-btn.copy-error {
+    background: #dc3232;
+    color: #fff;
+    border-color: #dc3232;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .wp-disk-link-button {
+        padding: 10px 12px;
+        font-size: 16px;
+        min-width: 120px;
+        display: block;
+        margin: 8px 0;
+        text-align: center;
+    }
+    
+    .expire-notice {
+        display: block;
+        margin-left: 0 !important;
+        margin-top: 4px !important;
+    }
+    
+    .copy-link-btn {
+        display: block;
+        margin: 4px 0 0 0;
+        text-align: center;
+    }
+}
+
+/* 辅助功能 */
+.wp-disk-link-button:focus-visible {
+    outline: 2px solid #005177;
+    outline-offset: 2px;
+}
+
+/* 暗色模式支持 */
+@media (prefers-color-scheme: dark) {
+    .wp-disk-link-button {
+        background: #135e96;
+    }
+    
+    .wp-disk-link-button:hover {
+        background: #0f4c7c;
+    }
+    
+    .expire-notice {
+        color: #a7aaad !important;
+    }
+    
+    .copy-link-btn {
+        background: #2c3338;
+        color: #c3c4c7;
+        border-color: #646970;
+    }
+    
+    .copy-link-btn:hover {
+        background: #1d2327;
+        border-color: #8c8f94;
+    }
+}
+
+/* 打印时隐藏按钮 */
+@media print {
+    .wp-disk-link-button,
+    .copy-link-btn,
+    .expire-notice {
+        display: none !important;
+    }
+}
